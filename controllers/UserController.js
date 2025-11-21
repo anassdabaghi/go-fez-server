@@ -1210,8 +1210,18 @@ const deleteUser = async (req, res) => {
       });
     }
 
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+    // Use the same cookie options as generateAndSetTokens
+    const isProduction = process.env.NODE_ENV === 'production';
+    const baseCookieOptions = {
+      httpOnly: true,
+      secure: isProduction, // requis si sameSite=None
+      sameSite: isProduction ? 'None' : 'Lax',
+      path: '/',
+    };
+
+    // Clear httpOnly cookies with matching options
+    res.clearCookie('tk', baseCookieOptions);
+    res.clearCookie('refreshToken', baseCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -1498,20 +1508,18 @@ const checkAdminRights = async (req, res) => {
 // Logout endpoint - clear httpOnly cookies
 const logoutUser = async (req, res) => {
   try {
-    // Clear httpOnly cookies
-    res.clearCookie('tk', {
+    // Use the same cookie options as generateAndSetTokens
+    const isProduction = process.env.NODE_ENV === 'production';
+    const baseCookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Lax',
+      secure: isProduction, // requis si sameSite=None
+      sameSite: isProduction ? 'None' : 'Lax',
       path: '/',
-    });
+    };
 
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Lax',
-      path: '/',
-    });
+    // Clear httpOnly cookies with matching options
+    res.clearCookie('tk', baseCookieOptions);
+    res.clearCookie('refreshToken', baseCookieOptions);
 
     res.status(200).json({
       success: true,

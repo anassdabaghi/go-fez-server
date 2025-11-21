@@ -64,8 +64,13 @@ exports.createCustomCircuit = async (req, res) => {
  */
 exports.getUserCustomCircuits = async (req, res) => {
 	try {
-		const userId = req.user?.userId || 1; // Fallback to user ID 1 for testing
-
+		const userId = req.user?.userId; 
+		if (!userId) {
+			return res.status(401).json({
+				success: false,
+				message: 'Utilisateur non authentifié.',
+			});
+		}
 		const circuits = await CustomCircuit.findAll({
 			where: { userId, isDeleted: false },
 			order: [['createdAt', 'DESC']],
@@ -132,7 +137,13 @@ exports.getUserCustomCircuits = async (req, res) => {
 exports.getCustomCircuitById = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const userId = req.user?.userId || 1; // Fallback to user ID 1 for testing
+		const userId = req.user?.userId;
+		if (!userId) {
+			return res.status(401).json({
+				success: false,
+				message: 'Utilisateur non authentifié.',
+			});
+		}
 
 		const circuit = await CustomCircuit.findOne({
 			where: { id, isDeleted: false },

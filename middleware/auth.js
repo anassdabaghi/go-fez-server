@@ -151,13 +151,48 @@ const authenticateHeaderToken = async (req, res, next) => {
  * Vérifie que l'utilisateur a le rôle requis
  */
 const requireRole = (requiredRoles) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
-      if (!req.user) {
+      // Récupération du token depuis le cookie
+      const token = req.cookies.tk;
+      
+      if (!token) {
         return res.status(401).json({
           success: false,
-          error: 'Authentification requise',
-          code: 'AUTH_REQUIRED',
+          error: 'Token d\'accès requis',
+          code: 'TOKEN_MISSING',
+        });
+      }
+
+      // Vérification et décodage du token
+      let decoded;
+      try {
+        decoded = jwt.verify(token, JWT_SECRET);
+      } catch (tokenError) {
+        if (tokenError.name === 'JsonWebTokenError') {
+          return res.status(401).json({
+            success: false,
+            error: 'Token invalide',
+            code: 'TOKEN_INVALID',
+          });
+        }
+        if (tokenError.name === 'TokenExpiredError') {
+          return res.status(401).json({
+            success: false,
+            error: 'Token expiré',
+            code: 'TOKEN_EXPIRED',
+          });
+        }
+        throw tokenError;
+      }
+
+      // Vérification que l'utilisateur existe toujours dans la base de données
+      const user = await User.findByPk(decoded.userId);
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Utilisateur non trouvé',
+          code: 'USER_NOT_FOUND',
         });
       }
 
@@ -167,15 +202,27 @@ const requireRole = (requiredRoles) => {
         : [requiredRoles];
 
       // Vérifier si l'utilisateur a l'un des rôles requis
-      if (!roles.includes(req.user.role)) {
+      // Utiliser le rôle depuis la base de données (toujours à jour) plutôt que depuis le token
+      const userRole = user.role;
+      if (!roles.includes(userRole)) {
         return res.status(403).json({
           success: false,
           error: 'Permissions insuffisantes',
           code: 'INSUFFICIENT_PERMISSIONS',
           required: roles,
-          current: req.user.role,
+          current: userRole,
         });
       }
+
+      // Ajouter les informations utilisateur à la requête pour utilisation ultérieure
+      // Utiliser les données de la base de données pour le rôle (toujours à jour)
+      req.user = {
+        userId: user.id,
+        email: user.email || decoded.email,
+        role: user.role,
+        primaryIdentifier: user.primaryIdentifier || decoded.primaryIdentifier,
+        authProvider: user.authProvider || decoded.authProvider,
+      };
 
       next();
     } catch (error) {
