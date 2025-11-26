@@ -17,7 +17,7 @@ class Database {
 						connectTimeout: 10000, // Temps d'attente en millisecondes (ici 10 secondes)
 					},
 					logging: false,
-					port: 3306,
+					port: process.env.DB_PORT,
 					pool: {
 						max: 5,
 						min: 0,

@@ -83,7 +83,7 @@ const handleValidationErrors = (req, res, next) => {
 // Méthode d'inscription (SignUp)
 const registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, email, password } = req.body;
+    const { firstName, lastName, email, password, phone } = req.body;
 
     // Vérifier que l'email est fourni
     if (!email) {
@@ -123,6 +123,7 @@ const registerUser = async (req, res) => {
       firstName,
       lastName,
       email,
+      phone: phone || null,
       password: hashedPassword,
       authProvider: 'email',
       primaryIdentifier: email,
@@ -262,7 +263,7 @@ const loginUser = async (req, res) => {
       message: 'Connexion réussie',
       user: userResponse,
       // token and refresh token should be removed from response body for security reasons
-      //the web apps(izidoor, go-fes) doesnt use it , but mobile apps need it
+      //the web apps( go-fes) doesnt use it , but mobile apps need it
       token: tokens.token,
       refreshToken: tokens.refreshToken,
     };

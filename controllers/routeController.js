@@ -1,6 +1,7 @@
 const { 
     Route, 
     Circuit, 
+    CustomCircuit,
     POI, 
     VisitedTrace, 
     RemovedTrace,
@@ -21,8 +22,7 @@ const Sequelize = require('sequelize');
 // 1. Démarrer une nouvelle Route (POST /routes/start)
 // ====================================================================
 exports.startRoute = async (req, res) => {
-    // 1. Extraction des données. On suppose que userId vient du token d'authentification.
-    const { circuitId, longitude, latitude, pois } = req.body;
+    const { circuitId, longitude, latitude, pois, isCustomCircuit } = req.body;
     const userId = req.user.userId; 
 
     if (!circuitId || !latitude || !longitude) {
@@ -33,69 +33,154 @@ exports.startRoute = async (req, res) => {
     }
 
     try {
+        let circuit = null;
+        let customCircuit = null;
+        let poisList = [];
+        let endPoint = null;
+        const isCustom = isCustomCircuit === true;
         
-        // 1.2 Vérification de l'existence du Circuit original
-        const circuit = await Circuit.findOne({
-              where: { id: circuitId , isDeleted: false },
-              include: [
-                {
-                  model: City,
-                  as: 'city'
-                },
-                {
-                  model: Theme,
-                  as: 'themes',
-                  through: { attributes: [] },
-                  where: { isDeleted: false },
-                  required: false
-                },
-                {
-                  model: POI,
-                  as: 'pois',
-                  through: {
-                    attributes: ['order', 'estimatedTime']
-                  },
-                  where: { isDeleted: false },
-                  required: false,
-                  include: [
-                    { model: POILocalization, as: 'frLocalization' },
-                    { model: POILocalization, as: 'arLocalization' },
-                    { model: POILocalization, as: 'enLocalization' }
-                  ]
+        console.log('🎯 Starting route - isCustomCircuit:', isCustomCircuit, 'circuitId:', circuitId);
+        
+        // 1.2 Check based on isCustomCircuit flag from frontend
+        if (isCustom) {
+            // Fetch custom circuit
+            customCircuit = await CustomCircuit.findOne({
+                where: { id: circuitId, isDeleted: false }
+            });
+            
+            if (!customCircuit) {
+                return res.status(404).json({ 
+                    status: 'fail', 
+                    message: 'Le Circuit personnalisé est introuvable.' 
+                });
+            }
+            
+            // Parse selectedPOIs if it's a string
+            let selectedPoiIds = customCircuit.selectedPOIs;
+            if (typeof selectedPoiIds === 'string') {
+                try {
+                    selectedPoiIds = JSON.parse(selectedPoiIds);
+                } catch (e) {
+                    console.error('❌ Failed to parse selectedPOIs:', e);
+                    selectedPoiIds = [];
                 }
-              ]
+            }
+            
+            // For custom circuits, fetch POIs from selectedPOIs array
+            if (selectedPoiIds && Array.isArray(selectedPoiIds) && selectedPoiIds.length > 0) {
+                poisList = await POI.findAll({
+                    where: { 
+                        id: selectedPoiIds,
+                        isDeleted: false 
+                    },
+                    include: [
+                        { model: POILocalization, as: 'frLocalization' },
+                        { model: POILocalization, as: 'arLocalization' },
+                        { model: POILocalization, as: 'enLocalization' }
+                    ]
+                });
+                
+                // Sort POIs according to selectedPOIs order
+                poisList.sort((a, b) => {
+                    return selectedPoiIds.indexOf(a.id) - selectedPoiIds.indexOf(b.id);
+                });
+            }
+            
+            // Use customCircuit's endPoint if available, otherwise use last POI coordinates
+            endPoint = customCircuit.endPoint;
+            if (!endPoint && poisList.length > 0) {
+                const lastPOI = poisList[poisList.length - 1];
+                endPoint = lastPOI.coordinates;
+            }
+        } else {
+            // Fetch regular circuit
+            circuit = await Circuit.findOne({
+                where: { id: circuitId , isDeleted: false },
+                include: [
+                    {
+                        model: City,
+                        as: 'city'
+                    },
+                    {
+                        model: Theme,
+                        as: 'themes',
+                        through: { attributes: [] },
+                        where: { isDeleted: false },
+                        required: false
+                    },
+                    {
+                        model: POI,
+                        as: 'pois',
+                        through: {
+                            attributes: ['order', 'estimatedTime']
+                        },
+                        where: { isDeleted: false },
+                        required: false,
+                        include: [
+                            { model: POILocalization, as: 'frLocalization' },
+                            { model: POILocalization, as: 'arLocalization' },
+                            { model: POILocalization, as: 'enLocalization' }
+                        ]
+                    }
+                ]
             });
-
-        if (!circuit) {
-            return res.status(404).json({ 
-                status: 'fail', 
-                message: 'Le Circuit original est introuvable.' 
-            });
+            
+            if (!circuit) {
+                return res.status(404).json({ 
+                    status: 'fail', 
+                    message: 'Le Circuit original est introuvable.' 
+                });
+            }
+            
+            poisList = circuit.pois || [];
+            endPoint = circuit.endPoint;
         }
 
-        let idOfPoi = (pois && pois.length > 0) ? pois[0] : null;
-
         // 1.3 Création du nouvel enregistrement Route
-        const newRoute = await Route.create({
+        const routeData = {
             userId: req.user.userId,
-            circuitId,
             isCompleted: false,
-            endPoint: circuit.endPoint
-        });
+            endPoint: endPoint
+        };
+        
+        // Set either circuitId or customCircuitId
+        if (isCustom) {
+            routeData.customCircuitId = circuitId;
+        } else {
+            routeData.circuitId = circuitId;
+        }
+        
+        const newRoute = await Route.create(routeData);
 
-        // 1.4 Création de la première trace (obligatoire)
+        // 1.4 Création de la première trace - DO NOT mark any POI as visited yet
+        // The first trace only records the starting location
         const newVisitedTrace = await VisitedTrace.create({
             routeId: newRoute.id,
             latitude,
             longitude,
-            idPoi: idOfPoi 
+            idPoi: null // Don't mark any POI as visited on route start
         });
+        
+        // Prepare circuit data for response
+        const circuitData = isCustom ? {
+            id: customCircuit.id,
+            name: customCircuit.name,
+            isCustom: true,
+            pois: poisList.map((poi, index) => ({
+                ...poi.toJSON ? poi.toJSON() : poi,
+                CircuitPOI: { order: index + 1, estimatedTime: null }
+            })),
+            estimatedDuration: customCircuit.estimatedDuration,
+            startDate: customCircuit.startDate,
+            startPoint: customCircuit.startPoint,
+            endPoint: customCircuit.endPoint
+        } : circuit;
         
         return res.status(200).json({
             status: true,
             message: 'Route démarrée avec succès. Première trace enregistrée.',
             data: { 
-                circuit, 
+                circuit: circuitData, 
                 firstTrace: newVisitedTrace,
                 isRouteCompleted: false
             }
@@ -133,6 +218,11 @@ exports.getRouteById = async (req, res) => {
                     include: [
                         { model: City, as: 'city', required: false }
                     ]
+                },
+                {
+                    model: CustomCircuit,
+                    as: 'customCircuit',
+                    required: false
                 }
             ]
         });
@@ -141,9 +231,20 @@ exports.getRouteById = async (req, res) => {
             return res.status(404).json({ status: false, message: 'Route introuvable.' });
         }
 
-        console.log('✅ Route found:', { id: route.id, circuitId: route.circuitId, poiId: route.poiId });
+        console.log('✅ Route found:', { 
+            id: route.id, 
+            circuitId: route.circuitId, 
+            customCircuitId: route.customCircuitId, 
+            poiId: route.poiId 
+        });
 
         const isCircuitRoute = route.circuitId !== null;
+        const isCustomCircuitRoute = route.customCircuitId !== null;
+        
+        console.log('🔍 Route type check:', { 
+            isCircuitRoute, 
+            isCustomCircuitRoute 
+        });
 
         let poisNotRemoved = [];
         let allCircuitPois = [];
@@ -188,6 +289,78 @@ exports.getRouteById = async (req, res) => {
             
             // Keep poisNotRemoved for backward compatibility
             poisNotRemoved = allCircuitPois.filter(p => !removedPoiIds.includes(p.id));
+        } else if (isCustomCircuitRoute) {
+            // Handle custom circuit routes
+            console.log('🎨 Fetching custom circuit:', route.customCircuitId);
+            const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+            
+            if (!customCircuit) {
+                console.error('❌ Custom circuit not found:', route.customCircuitId);
+                return res.status(404).json({ status: false, message: 'Circuit personnalisé non trouvé.' });
+            }
+            
+            console.log('✅ Custom circuit found:', {
+                id: customCircuit.id,
+                name: customCircuit.name,
+                selectedPOIs: customCircuit.selectedPOIs,
+                selectedPOIsType: typeof customCircuit.selectedPOIs,
+                selectedPOIsLength: customCircuit.selectedPOIs?.length
+            });
+            
+            // 2) Récupérer les POIs retirés pour cette route
+            removedTraces = await RemovedTrace.findAll({
+                where: { routeId: id },
+                attributes: ['poiId', 'createdAt']
+            });
+            const removedPoiIds = removedTraces.map(t => t.poiId);
+            console.log('🗑️ [getRouteById] Removed POIs for custom circuit:', removedPoiIds);
+            
+            // Parse selectedPOIs if it's a string
+            let poiIds = customCircuit.selectedPOIs;
+            if (typeof poiIds === 'string') {
+                try {
+                    poiIds = JSON.parse(poiIds);
+                    console.log('📝 Parsed selectedPOIs from string to array:', poiIds);
+                } catch (e) {
+                    console.error('❌ Failed to parse selectedPOIs:', e);
+                    poiIds = [];
+                }
+            }
+            
+            if (poiIds && Array.isArray(poiIds) && poiIds.length > 0) {
+                console.log('🔍 Fetching POIs with IDs:', poiIds);
+                const pois = await POI.findAll({
+                    where: { id: poiIds, isDeleted: false },
+                    include: [
+                        { model: POILocalization, as: 'frLocalization' },
+                        { model: POILocalization, as: 'arLocalization' },
+                        { model: POILocalization, as: 'enLocalization' },
+                        { model: POIFile, as: 'files', where: { type: 'image' }, required: false }
+                    ]
+                });
+                
+                console.log('📍 Found POIs:', pois.length, 'POIs');
+                
+                // Sort POIs according to selectedPOIs order and add order field
+                pois.sort((a, b) => {
+                    return poiIds.indexOf(a.id) - poiIds.indexOf(b.id);
+                });
+                
+                allCircuitPois = pois.map((p, index) => {
+                    const po = p.toJSON ? p.toJSON() : p;
+                    const initialImage = Array.isArray(po.files) && po.files.length > 0
+                        ? (po.files.find((f) => f?.type === 'image')?.fileUrl || po.files[0]?.fileUrl)
+                        : null;
+                    // Add CircuitPOI field with order to match regular circuit structure
+                    return { 
+                        ...po, 
+                        initialImage,
+                        CircuitPOI: { order: index + 1, estimatedTime: null }
+                    };
+                });
+                
+                poisNotRemoved = allCircuitPois;
+            }
         } else if (route.poiId) {
             // For navigation routes, fetch the target POI
             const targetPoi = await POI.findByPk(route.poiId, {
@@ -229,7 +402,9 @@ exports.getRouteById = async (req, res) => {
 
         console.log('✅ Returning route data:', {
             isCircuitRoute,
+            isCustomCircuitRoute,
             allPoisCount: allCircuitPois.length,
+            poisSample: allCircuitPois.length > 0 ? allCircuitPois[0].id : 'none',
             visitedTracesCount: visitedTraces.length,
             removedTracesCount: removedTraces.length
         });
@@ -347,28 +522,47 @@ exports.addVisitedTrace = async (req, res) => {
         // N'exécuter la logique de vérification complète que si un POI a été signalé
         if (idOfPoi) {
             
-            // A. Obtenir tous les POIs originaux du Circuit
-            const circuitWithPois = await Circuit.findByPk(route.circuitId, {
-                include: [{
-                    model: POI,
-                    as: 'pois', // Assurez-vous que cette association est définie dans Circuit.js
-                    attributes: ['id'],
-                    through: { attributes: [] }
-                }]
-            });
+            const isCustomCircuit = !!route.customCircuitId;
+            let allOriginalPoiIds = [];
             
-            if (!circuitWithPois) {
-                return res.status(404).json({ status: 'fail', message: 'Circuit non trouvé.' });
+            // A. Obtenir tous les POIs originaux du Circuit ou CustomCircuit
+            if (isCustomCircuit) {
+                console.log('🎨 [addTrace] Processing custom circuit:', route.customCircuitId);
+                const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+                if (customCircuit && customCircuit.selectedPOIs) {
+                    const selectedPOIs = typeof customCircuit.selectedPOIs === 'string' 
+                        ? JSON.parse(customCircuit.selectedPOIs) 
+                        : customCircuit.selectedPOIs;
+                    allOriginalPoiIds = selectedPOIs;
+                    console.log('📋 [addTrace] Custom circuit original POIs:', allOriginalPoiIds);
+                } else {
+                    return res.status(404).json({ status: 'fail', message: 'Circuit personnalisé non trouvé.' });
+                }
+            } else {
+                console.log('🏛️ [addTrace] Processing regular circuit:', route.circuitId);
+                const circuitWithPois = await Circuit.findByPk(route.circuitId, {
+                    include: [{
+                        model: POI,
+                        as: 'pois',
+                        attributes: ['id'],
+                        through: { attributes: [] }
+                    }]
+                });
+                
+                if (!circuitWithPois) {
+                    return res.status(404).json({ status: 'fail', message: 'Circuit non trouvé.' });
+                }
+                allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
+                console.log('📋 [addTrace] Regular circuit original POIs:', allOriginalPoiIds);
             }
-
-            const allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
             
-            // B. Identifier les POIs retirés
+            // B. Identifier les POIs retirés (works for both circuit types)
             const removedTraces = await RemovedTrace.findAll({
-                where: { userId: userId, circuitId: route.circuitId },
+                where: { routeId: route.id },
                 attributes: ['poiId']
             });
             const removedPoiIds = removedTraces.map(t => t.poiId);
+            console.log('🗑️ [addTrace] Removed POIs:', removedPoiIds);
 
             // C. Déterminer les POIs REQUIs (Originals - Removed)
             const requiredPoiIds = allOriginalPoiIds.filter(id => 
@@ -476,7 +670,7 @@ exports.removePOIFromRoute = async (req, res) => {
 
         const route = await Route.findOne({
             where: { id: routeId, userId: userId, isCompleted: false },
-            attributes: ['id', 'circuitId']
+            attributes: ['id', 'circuitId', 'customCircuitId']
         });
 
         if (!route) {
@@ -486,18 +680,49 @@ exports.removePOIFromRoute = async (req, res) => {
             });
         }
         
-        const circuitId = route.circuitId;
-        const isPoiInCircuit = await Circuit.findOne({
-            where: { id: circuitId },
-            include: [{
-                model: POI,
-                as: 'pois',
-                where: { id: poiId },
-                required: true 
-            }]
+        console.log('🔍 [removePOI] Route found:', { 
+            routeId: route.id, 
+            circuitId: route.circuitId, 
+            customCircuitId: route.customCircuitId 
         });
 
-        if (!isPoiInCircuit) {
+        const isCustomCircuit = !!route.customCircuitId;
+        let isPoiValid = false;
+
+        if (isCustomCircuit) {
+            // Custom circuit: check if POI is in selectedPOIs array
+            const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+            if (customCircuit && customCircuit.selectedPOIs) {
+                const selectedPOIs = typeof customCircuit.selectedPOIs === 'string' 
+                    ? JSON.parse(customCircuit.selectedPOIs) 
+                    : customCircuit.selectedPOIs;
+                isPoiValid = selectedPOIs.includes(poiId);
+                console.log('✅ [removePOI] Custom circuit POI check:', { 
+                    selectedPOIs, 
+                    poiId, 
+                    isPoiValid 
+                });
+            }
+        } else {
+            // Regular circuit: check if POI is in circuit's POIs
+            const isPoiInCircuit = await Circuit.findOne({
+                where: { id: route.circuitId },
+                include: [{
+                    model: POI,
+                    as: 'pois',
+                    where: { id: poiId },
+                    required: true 
+                }]
+            });
+            isPoiValid = !!isPoiInCircuit;
+            console.log('✅ [removePOI] Regular circuit POI check:', { 
+                circuitId: route.circuitId, 
+                poiId, 
+                isPoiValid 
+            });
+        }
+
+        if (!isPoiValid) {
              return res.status(404).json({
                 status: 'fail',
                 message: 'Ce POI n\'est pas initialement dans ce Circuit.'
@@ -527,17 +752,31 @@ exports.removePOIFromRoute = async (req, res) => {
         });
         
         let isRouteCompleted = false;
+        let allOriginalPoiIds = [];
 
-        const circuitWithPois = await Circuit.findByPk(circuitId, {
-            include: [{
-                model: POI,
-                as: 'pois',
-                attributes: ['id'],
-                through: { attributes: [] }
-            }]
-        });
-
-        const allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
+        if (isCustomCircuit) {
+            // Custom circuit: get POIs from selectedPOIs array
+            const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+            if (customCircuit && customCircuit.selectedPOIs) {
+                const selectedPOIs = typeof customCircuit.selectedPOIs === 'string' 
+                    ? JSON.parse(customCircuit.selectedPOIs) 
+                    : customCircuit.selectedPOIs;
+                allOriginalPoiIds = selectedPOIs;
+                console.log('📋 [removePOI] Custom circuit original POIs:', allOriginalPoiIds);
+            }
+        } else {
+            // Regular circuit: get POIs from Circuit table
+            const circuitWithPois = await Circuit.findByPk(route.circuitId, {
+                include: [{
+                    model: POI,
+                    as: 'pois',
+                    attributes: ['id'],
+                    through: { attributes: [] }
+                }]
+            });
+            allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
+            console.log('📋 [removePOI] Regular circuit original POIs:', allOriginalPoiIds);
+        }
 
         const removedTraces = await RemovedTrace.findAll({
             where: { routeId: routeId }, 
@@ -614,7 +853,7 @@ exports.addPOIToRoute = async (req, res) => {
     try {
         const route = await Route.findOne({
             where: { id: routeId, userId: userId, isCompleted: false },
-            attributes: ['id', 'circuitId']
+            attributes: ['id', 'circuitId', 'customCircuitId']
         });
 
         if (!route) {
@@ -624,18 +863,49 @@ exports.addPOIToRoute = async (req, res) => {
             });
         }
         
-        const circuitId = route.circuitId;
-        const isPoiInCircuit = await Circuit.findOne({
-            where: { id: circuitId },
-            include: [{
-                model: POI,
-                as: 'pois',
-                where: { id: poiId },
-                required: true 
-            }]
+        console.log('🔍 [addPOI] Route found:', { 
+            routeId: route.id, 
+            circuitId: route.circuitId, 
+            customCircuitId: route.customCircuitId 
         });
 
-        if (!isPoiInCircuit) {
+        const isCustomCircuit = !!route.customCircuitId;
+        let isPoiValid = false;
+
+        if (isCustomCircuit) {
+            // Custom circuit: check if POI is in selectedPOIs array
+            const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+            if (customCircuit && customCircuit.selectedPOIs) {
+                const selectedPOIs = typeof customCircuit.selectedPOIs === 'string' 
+                    ? JSON.parse(customCircuit.selectedPOIs) 
+                    : customCircuit.selectedPOIs;
+                isPoiValid = selectedPOIs.includes(poiId);
+                console.log('✅ [addPOI] Custom circuit POI check:', { 
+                    selectedPOIs, 
+                    poiId, 
+                    isPoiValid 
+                });
+            }
+        } else {
+            // Regular circuit: check if POI is in circuit's POIs
+            const isPoiInCircuit = await Circuit.findOne({
+                where: { id: route.circuitId },
+                include: [{
+                    model: POI,
+                    as: 'pois',
+                    where: { id: poiId },
+                    required: true 
+                }]
+            });
+            isPoiValid = !!isPoiInCircuit;
+            console.log('✅ [addPOI] Regular circuit POI check:', { 
+                circuitId: route.circuitId, 
+                poiId, 
+                isPoiValid 
+            });
+        }
+
+        if (!isPoiValid) {
             return res.status(404).json({
                 status: 'fail',
                 message: 'Ce POI n\'est pas initialement dans ce Circuit.'
@@ -662,16 +932,31 @@ exports.addPOIToRoute = async (req, res) => {
         
         // Vérifier si la route doit être marquée comme non complétée
         // (si elle était complétée uniquement parce que ce POI était retiré)
-        const circuitWithPois = await Circuit.findByPk(circuitId, {
-            include: [{
-                model: POI,
-                as: 'pois',
-                attributes: ['id'],
-                through: { attributes: [] }
-            }]
-        });
+        let allOriginalPoiIds = [];
 
-        const allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
+        if (isCustomCircuit) {
+            // Custom circuit: get POIs from selectedPOIs array
+            const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+            if (customCircuit && customCircuit.selectedPOIs) {
+                const selectedPOIs = typeof customCircuit.selectedPOIs === 'string' 
+                    ? JSON.parse(customCircuit.selectedPOIs) 
+                    : customCircuit.selectedPOIs;
+                allOriginalPoiIds = selectedPOIs;
+                console.log('📋 [addPOI] Custom circuit original POIs:', allOriginalPoiIds);
+            }
+        } else {
+            // Regular circuit: get POIs from Circuit table
+            const circuitWithPois = await Circuit.findByPk(route.circuitId, {
+                include: [{
+                    model: POI,
+                    as: 'pois',
+                    attributes: ['id'],
+                    through: { attributes: [] }
+                }]
+            });
+            allOriginalPoiIds = circuitWithPois.pois.map(p => p.id);
+            console.log('📋 [addPOI] Regular circuit original POIs:', allOriginalPoiIds);
+        }
 
         const removedTraces = await RemovedTrace.findAll({
             where: { routeId: routeId }, 
@@ -707,6 +992,96 @@ exports.addPOIToRoute = async (req, res) => {
 
     } catch (error) {
         console.error('Erreur lors du rajout du POI à la Route:', error);
+        return res.status(500).json({
+            status: false,
+            message: 'Erreur interne du serveur.'
+        });
+    }
+};
+
+
+// ====================================================================
+// NEW: Reorder POIs in custom circuit during route navigation
+// ====================================================================
+exports.reorderCustomCircuitPOIs = async (req, res) => {
+    const { routeId, orderedPoiIds } = req.body;
+    const userId = req.user.userId;
+
+    if (!routeId || !orderedPoiIds || !Array.isArray(orderedPoiIds)) {
+        return res.status(400).json({
+            status: 'fail',
+            message: 'routeId et orderedPoiIds (array) sont requis.'
+        });
+    }
+
+    try {
+        const route = await Route.findOne({
+            where: { id: routeId, userId: userId, isCompleted: false },
+            attributes: ['id', 'circuitId', 'customCircuitId']
+        });
+
+        if (!route) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Route introuvable, complétée ou n\'appartient pas à cet utilisateur.'
+            });
+        }
+
+        if (!route.customCircuitId) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Cette fonctionnalité est uniquement disponible pour les circuits personnalisés.'
+            });
+        }
+
+        const customCircuit = await CustomCircuit.findByPk(route.customCircuitId);
+        
+        if (!customCircuit) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'Circuit personnalisé introuvable.'
+            });
+        }
+
+        // Parse existing selectedPOIs
+        let existingPoiIds = customCircuit.selectedPOIs;
+        if (typeof existingPoiIds === 'string') {
+            existingPoiIds = JSON.parse(existingPoiIds);
+        }
+
+        // Validate: ordered IDs must match existing POIs
+        const sortedExisting = [...existingPoiIds].sort();
+        const sortedOrdered = [...orderedPoiIds].sort();
+        
+        if (JSON.stringify(sortedExisting) !== JSON.stringify(sortedOrdered)) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Les POIs fournis ne correspondent pas aux POIs du circuit.'
+            });
+        }
+
+        // Update the custom circuit with new order
+        await customCircuit.update({
+            selectedPOIs: JSON.stringify(orderedPoiIds)
+        });
+
+        console.log('🔄 [reorderPOIs] Updated POI order:', {
+            customCircuitId: customCircuit.id,
+            oldOrder: existingPoiIds,
+            newOrder: orderedPoiIds
+        });
+
+        return res.status(200).json({
+            status: true,
+            message: 'Ordre des POIs mis à jour avec succès.',
+            data: {
+                customCircuitId: customCircuit.id,
+                orderedPoiIds
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Erreur lors de la réorganisation des POIs:', error);
         return res.status(500).json({
             status: false,
             message: 'Erreur interne du serveur.'

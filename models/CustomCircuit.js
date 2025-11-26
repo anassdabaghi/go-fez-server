@@ -32,6 +32,16 @@ const CustomCircuit = sequelize.define(
 			type: DataTypes.INTEGER, // en minutes
 			allowNull: true,
 		},
+		startPoint: {
+			type: DataTypes.JSON,
+			allowNull: true,
+			comment: 'Starting point coordinates {lat, lng, address}',
+		},
+		endPoint: {
+			type: DataTypes.JSON,
+			allowNull: true,
+			comment: 'Ending point coordinates {lat, lng, address}',
+		},
 		isPublic: {
 			type: DataTypes.BOOLEAN,
 			defaultValue: false,

@@ -18,6 +18,16 @@ const Route = sequelize.define('Route', {
     onUpdate: 'CASCADE',
     onDelete: 'CASCADE',
   },
+  customCircuitId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+        model: 'CustomCircuits',
+        key: 'id',
+    },
+    onUpdate: 'CASCADE',
+    onDelete: 'CASCADE',
+  },
   userId: {
     type: DataTypes.INTEGER,
     allowNull: false,

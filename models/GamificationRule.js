@@ -12,7 +12,7 @@ const GamificationRule = sequelize.define(
       primaryKey: true,
     },
     activity: {
-      type: DataTypes.ENUM(...GAMIFICATIONS_ENUM),
+      type: DataTypes.STRING,
       allowNull: false,
     },
 

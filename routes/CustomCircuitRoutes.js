@@ -7,45 +7,42 @@ const customCircuitController = require('../controllers/CustomCircuitController'
 // Importer le middleware d'authentification
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 
-// TESTING MODE: Use optionalAuth instead of authenticateToken to allow testing without login
-// Change back to authenticateToken when ready for production
-
 /**
  * @route   POST /api/custom-circuits
  * @desc    Créer un nouveau circuit personnalisé
- * @access  Privé (Testing: Public avec userId par défaut)
+ * @access  Privé
  */
-router.post('/', customCircuitController.createCustomCircuit);
+router.post('/', authenticateToken, customCircuitController.createCustomCircuit);
 
 /**
  * @route   GET /api/custom-circuits/user
  * @desc    Récupérer tous les circuits personnalisés de l'utilisateur connecté
- * @access  Privé (Testing: Public avec userId par défaut)
+ * @access  Privé
  */
-router.get('/user', customCircuitController.getUserCustomCircuits);
+router.get('/user', authenticateToken, customCircuitController.getUserCustomCircuits);
 
 /**
  * @route   GET /api/custom-circuits/:id
  * @desc    Récupérer un circuit personnalisé par ID (propriétaire ou public)
- * @access  Privé (Testing: Public avec userId par défaut)
+ * @access  Privé
  * @params  id
  */
-router.get('/:id', customCircuitController.getCustomCircuitById);
+router.get('/:id', authenticateToken, customCircuitController.getCustomCircuitById);
 
 /**
  * @route   PUT /api/custom-circuits/:id
  * @desc    Mettre à jour un circuit personnalisé (propriétaire uniquement)
- * @access  Privé (Testing: Public avec userId par défaut)
+ * @access  Privé
  * @params  id
  */
-router.put('/:id', customCircuitController.updateCustomCircuit);
+router.put('/:id', authenticateToken, customCircuitController.updateCustomCircuit);
 
 /**
  * @route   DELETE /api/custom-circuits/:id
  * @desc    Supprimer (logiquement) un circuit personnalisé (propriétaire uniquement)
- * @access  Privé (Testing: Public avec userId par défaut)
+ * @access  Privé
  * @params  id
  */
-router.delete('/:id', customCircuitController.deleteCustomCircuit);
+router.delete('/:id', authenticateToken, customCircuitController.deleteCustomCircuit);
 
 module.exports = router;

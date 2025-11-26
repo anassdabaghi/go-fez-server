@@ -1,4 +1,4 @@
-// server-go-fez/controllers/CustomCircuitController.js
+ // server-go-fez/controllers/CustomCircuitController.js
 
 const { CustomCircuit, POI, POILocalization, POIFile } = require('../models');
 const xss = require('xss');
@@ -10,12 +10,11 @@ const xss = require('xss');
  */
 exports.createCustomCircuit = async (req, res) => {
 	try {
-		// --- DÉBUT DE LA CORRECTION ---
-		// 1. Accepter 'pois' et 'description' (envoyés par le front-end)
-		const { name, description, pois } = req.body;
+
+		// 1. Accepter 'pois', 'description', 'startPoint', 'endPoint' (envoyés par le front-end)
+		const { name, description, pois, startPoint, endPoint, estimatedDuration, startDate } = req.body;
 		
-		// TESTING MODE: Use a test userId if not authenticated
-		const userId = req.user?.userId || 1; // Fallback to user ID 1 for testing
+		const userId = req.user.userId;
 
 		// 2. Valider 'pois' et 'name'
 		if (!name || !pois || !Array.isArray(pois) || pois.length < 2) {
@@ -37,9 +36,13 @@ exports.createCustomCircuit = async (req, res) => {
 			name: xss(name),
 			description: description ? xss(description) : null, // 5. Ajouter la description
 			selectedPOIs: selectedPoiIds, // 6. Enregistrer le tableau d'IDs
+			startPoint: startPoint || null, // 7. Enregistrer le point de départ
+			endPoint: endPoint || null, // 8. Enregistrer le point d'arrivée
+			estimatedDuration: estimatedDuration || null,
+			startDate: startDate || null,
 			isPublic: false, // Mettre 'false' par défaut
 		});
-		// --- FIN DE LA CORRECTION ---
+
 
 		res.status(201).json({
 			success: true,
@@ -64,13 +67,8 @@ exports.createCustomCircuit = async (req, res) => {
  */
 exports.getUserCustomCircuits = async (req, res) => {
 	try {
-		const userId = req.user?.userId; 
-		if (!userId) {
-			return res.status(401).json({
-				success: false,
-				message: 'Utilisateur non authentifié.',
-			});
-		}
+		const userId = req.user.userId;
+		
 		const circuits = await CustomCircuit.findAll({
 			where: { userId, isDeleted: false },
 			order: [['createdAt', 'DESC']],
@@ -137,13 +135,7 @@ exports.getUserCustomCircuits = async (req, res) => {
 exports.getCustomCircuitById = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const userId = req.user?.userId;
-		if (!userId) {
-			return res.status(401).json({
-				success: false,
-				message: 'Utilisateur non authentifié.',
-			});
-		}
+		const userId = req.user.userId;
 
 		const circuit = await CustomCircuit.findOne({
 			where: { id, isDeleted: false },
@@ -217,11 +209,11 @@ exports.getCustomCircuitById = async (req, res) => {
 exports.updateCustomCircuit = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const userId = req.user?.userId || 1; // Fallback to user ID 1 for testing
+		const userId = req.user.userId;
 
 		// --- DÉBUT DE LA CORRECTION ---
-		// 1. Accepter 'pois' et 'description'
-		const { name, description, pois, isPublic } = req.body;
+		// 1. Accepter 'pois', 'description', 'startPoint', 'endPoint'
+		const { name, description, pois, isPublic, startPoint, endPoint, estimatedDuration, startDate } = req.body;
 		// --- FIN DE LA CORRECTION ---
 
 		const circuit = await CustomCircuit.findOne({
@@ -241,6 +233,10 @@ exports.updateCustomCircuit = async (req, res) => {
 		if (name !== undefined) updateData.name = xss(name);
 		if (description !== undefined) updateData.description = xss(description);
 		if (isPublic !== undefined) updateData.isPublic = isPublic;
+		if (startPoint !== undefined) updateData.startPoint = startPoint;
+		if (endPoint !== undefined) updateData.endPoint = endPoint;
+		if (estimatedDuration !== undefined) updateData.estimatedDuration = estimatedDuration;
+		if (startDate !== undefined) updateData.startDate = startDate;
 
 		// --- DÉBUT DE LA CORRECTION ---
 		// 2. Transformer 'pois' si 'pois' est fourni
@@ -282,7 +278,7 @@ exports.updateCustomCircuit = async (req, res) => {
 exports.deleteCustomCircuit = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const userId = req.user?.userId || 1; // Fallback to user ID 1 for testing
+		const userId = req.user.userId;
 
 		const circuit = await CustomCircuit.findOne({
 			where: { id, userId, isDeleted: false }, // L'utilisateur doit être propriétaire

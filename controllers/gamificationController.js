@@ -43,13 +43,16 @@ async function createGamificationRule(req, res) {
         return;
       }
     });
-    if (!GAMIFICATIONS_ENUM.includes(activity)) {
+
+    // Validate activity is a non-empty string
+    if (!activity || typeof activity !== 'string' || activity.trim() === '') {
       res.status(400).json({
         status: 'failure',
-        data: 'invalid value for field activity',
+        data: 'activity must be a non-empty string',
       });
       return;
     }
+
     const gamification_rule = await GamificationRule.create({
       points,
       activity,
@@ -94,10 +97,11 @@ async function updateGamificationRule(req, res) {
     const updateFields = {};
     if (points !== undefined) updateFields.points = points;
     if (activity !== undefined) {
-      if (!GAMIFICATIONS_ENUM.includes(activity)) {
+      // Validate activity is a non-empty string
+      if (typeof activity !== 'string' || activity.trim() === '') {
         return res.status(400).json({
           status: 'failure',
-          data: 'invalid value for field activity',
+          data: 'activity must be a non-empty string',
         });
       }
       updateFields.activity = activity;
@@ -308,7 +312,10 @@ async function getGamificationProfile(req, res) {
     });
 
     // Sum all points (consistent with leaderboard calculation)
-    const totalPoints = transactions.reduce((sum, t) => sum + (t.points || 0), 0);
+    const totalPoints = transactions.reduce(
+      (sum, t) => sum + (t.points || 0),
+      0
+    );
 
     // Calculate level (100 points per level)
     const level = Math.floor(totalPoints / 100) + 1;
@@ -433,6 +440,103 @@ async function getLeaderboard(req, res) {
     });
   }
 }
+
+/**
+ * Get all gamification rules with optional filtering
+ */
+async function getAllGamificationRules(req, res) {
+  try {
+    const {
+      isActive,
+      activity,
+      page = 1,
+      limit = 50,
+      sortBy = 'activity',
+    } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const whereClause = {};
+    if (isActive !== undefined) {
+      whereClause.isActive = isActive === 'true';
+    }
+    if (activity) {
+      whereClause.activity = activity;
+    }
+
+    let order = [['activity', 'ASC']];
+    if (sortBy === 'points') {
+      order = [['points', 'DESC']];
+    } else if (sortBy === 'newest') {
+      order = [['createdAt', 'DESC']];
+    } else if (sortBy === 'oldest') {
+      order = [['createdAt', 'ASC']];
+    }
+
+    const { count, rows } = await GamificationRule.findAndCountAll({
+      where: whereClause,
+      order,
+      limit: parseInt(limit),
+      offset,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: rows,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching gamification rules:', error);
+    res.status(500).json({
+      status: 'server_failure',
+      message: 'Server Error',
+    });
+  }
+}
+
+/**
+ * Delete a gamification rule
+ * Expects: id in req.params
+ */
+async function deleteGamificationRule(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        status: 'failure',
+        data: 'id is required to delete gamification rule',
+      });
+    }
+
+    const deletedCount = await GamificationRule.destroy({
+      where: { id },
+    });
+
+    if (deletedCount === 0) {
+      return res.status(404).json({
+        status: 'failure',
+        data: 'gamification rule not found',
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: 'gamification rule deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting gamification rule:', error);
+    res.status(500).json({
+      status: 'server_failure',
+      message: 'Server Error',
+    });
+  }
+}
+
 async function seedDefaultGamifications() {
   try {
     const defaultGamifications = [
@@ -509,4 +613,6 @@ module.exports = {
   getGamificationProfile,
   getGamificationHistory,
   getLeaderboard,
+  getAllGamificationRules,
+  deleteGamificationRule,
 };

@@ -22,6 +22,10 @@ router.post('/remove-poi', authenticateToken, routeController.removePOIFromRoute
 // POST /api/routes/add-poi
 router.post('/add-poi', authenticateToken, routeController.addPOIToRoute);
 
+// 7. Reorder POIs in custom circuit during navigation
+// POST /api/routes/reorder-pois
+router.post('/reorder-pois', authenticateToken, routeController.reorderCustomCircuitPOIs);
+
 // NEW: Get user's saved routes with statistics (must be before /:id)
 // GET /api/routes/user
 router.get('/user', authenticateToken, routeController.getUserRoutes);

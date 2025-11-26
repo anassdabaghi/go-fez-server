@@ -51,4 +51,16 @@ GamificationRouter.get(
 // Get leaderboard
 GamificationRouter.get('/leaderboard', GamificationController.getLeaderboard);
 
+// Get all gamification rules (admin)
+GamificationRouter.get(
+  '/rules',
+  GamificationController.getAllGamificationRules
+);
+
+// Delete gamification rule (admin)
+GamificationRouter.delete(
+  '/rules/:id',
+  GamificationController.deleteGamificationRule
+);
+
 module.exports = { GamificationRouter };

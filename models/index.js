@@ -386,6 +386,10 @@ Route.belongsTo(Circuit, {
   foreignKey: 'circuitId',
   as: 'circuit',
 });
+Route.belongsTo(CustomCircuit, {
+  foreignKey: 'customCircuitId',
+  as: 'customCircuit',
+});
 Route.belongsTo(User, {
   foreignKey: 'userId',
   as: 'user',
@@ -408,6 +412,7 @@ RemovedTrace.belongsTo(POI, { foreignKey: 'poiId', as: 'poi' });
 RemovedTrace.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
 Circuit.hasMany(Route, { foreignKey: 'circuitId', as: 'routes' });
+CustomCircuit.hasMany(Route, { foreignKey: 'customCircuitId', as: 'routes' });
 User.hasMany(Route, { foreignKey: 'userId', as: 'routes' });
 
 // --- Relations Album ---
