@@ -27,7 +27,7 @@ const POIFile = sequelize.define('POIFile', {
     field: 'file_public_id',
   },
   type: {
-    type: DataTypes.ENUM('image', 'video', 'virtualtour', 'imageAlbum'),
+    type: DataTypes.ENUM('image', 'video', 'virtualtour', 'imageAlbum', 'youtubeVideo'),
     allowNull: false,
   },
   createdAt: {

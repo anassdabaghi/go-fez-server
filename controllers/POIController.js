@@ -6,6 +6,52 @@ const EARTH_RADIUS_KM = 6371;
 const { uploadFromBuffer, deleteFile, uploadPoiFile, uploadMultiplePoiFiles } = require('../Config/cloudinary');
 const xss = require('xss');
 
+// ✅ Fonction de validation des URLs YouTube
+const isValidYoutubeUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return false;
+  
+  // Patterns YouTube acceptés:
+  // - https://www.youtube.com/watch?v=VIDEO_ID
+  // - https://youtube.com/watch?v=VIDEO_ID
+  // - https://youtu.be/VIDEO_ID
+  // - https://www.youtube.com/shorts/VIDEO_ID (YouTube Shorts)
+  // - http://www.youtube.com/watch?v=VIDEO_ID
+  // - www.youtube.com/watch?v=VIDEO_ID
+  const youtubePatterns = [
+    /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+    /^(https?:\/\/)?(www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    /^(https?:\/\/)?(www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+    /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/ // ✅ Support YouTube Shorts
+  ];
+  
+  return youtubePatterns.some(pattern => pattern.test(trimmedUrl));
+};
+
+// ✅ Fonction pour extraire l'ID de la vidéo YouTube et normaliser l'URL
+const normalizeYoutubeUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return null;
+  
+  // Extraire l'ID de la vidéo
+  let videoId = null;
+  
+  // Pattern: youtube.com/watch?v=VIDEO_ID, youtu.be/VIDEO_ID, embed, v, ou shorts
+  const watchMatch = trimmedUrl.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (watchMatch) {
+    videoId = watchMatch[1];
+  }
+  
+  if (!videoId) return null;
+  
+  // Retourner l'URL normalisée (format watch standard pour faciliter l'affichage)
+  // Note: Les Shorts peuvent être convertis en format watch standard
+  return `https://www.youtube.com/watch?v=${videoId}`;
+};
+
 // Middleware pour vérifier les erreurs de validation
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -36,12 +82,26 @@ const createPOIWithFiles = async (req, res) => {
       enLocalization
     } = req.body;
 
+    console.log('📍 Création POI avec fichiers reçue:', {
+      coordinates,
+      category,
+      practicalInfo,
+      cityId,
+      isActive,
+      isVerified,
+      isPremium,
+      arLocalization,
+      frLocalization,
+      enLocalization
+    });
+
     // Parser les localisations JSON
     const arLoc = arLocalization ? JSON.parse(arLocalization) : null;
     const frLoc = frLocalization ? JSON.parse(frLocalization) : null;
     const enLoc = enLocalization ? JSON.parse(enLocalization) : null;
 
     // Validation: Au moins une localisation doit avoir un nom
+    console.log('📍 Localizations received:', { arLoc, frLoc, enLoc });
     if (!arLoc?.name && !frLoc?.name && !enLoc?.name) {
       return res.status(400).json({
         success: false,
@@ -224,6 +284,40 @@ if (enLoc && enLoc.name) {
       }
     }
 
+    // ✅ Créer POIFile pour les vidéos YouTube (si fournies)
+    const { youtubeUrls } = req.body;
+    if (youtubeUrls) {
+      try {
+        let parsedYoutubeUrls = [];
+        if (typeof youtubeUrls === 'string') {
+          parsedYoutubeUrls = JSON.parse(youtubeUrls);
+        } else if (Array.isArray(youtubeUrls)) {
+          parsedYoutubeUrls = youtubeUrls;
+        }
+
+        // Limiter à 10 URLs maximum
+        const validUrls = parsedYoutubeUrls
+          .slice(0, 10)
+          .map(url => normalizeYoutubeUrl(url))
+          .filter(url => url !== null && isValidYoutubeUrl(url));
+
+        for (const url of validUrls) {
+          try {
+            await POIFile.create({
+              poiId: poiResponse.id,
+              fileUrl: url,
+              filePublicId: null,
+              type: 'youtubeVideo'
+            });
+          } catch (error) {
+            console.warn('⚠️ Erreur création POIFile YouTube:', error.message);
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Erreur parsing youtubeUrls:', error.message);
+      }
+    }
+
     // Récupérer le POI complet avec ses relations
     const poiWithRelations = await POI.findByPk(poiResponse.id, {
       include: [
@@ -311,7 +405,7 @@ const findAllPOIs = async (req, res) => {
 
     // Otherwise, return paginated response
     const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 12;
+    const limitNum = parseInt(limit) || 200;
     const offset = (pageNum - 1) * limitNum;
 
     // Build where clause
@@ -639,6 +733,71 @@ if (req.body.audioToRemove) {
           filePublicId: null,
           type: 'virtualtour'
         });
+      }
+    }
+
+    // ✅ Gérer les vidéos YouTube
+    const { youtubeUrls } = req.body;
+    if (youtubeUrls !== undefined) {
+      try {
+        // Parser les URLs YouTube
+        let parsedYoutubeUrls = [];
+        if (typeof youtubeUrls === 'string') {
+          parsedYoutubeUrls = JSON.parse(youtubeUrls);
+        } else if (Array.isArray(youtubeUrls)) {
+          parsedYoutubeUrls = youtubeUrls;
+        }
+
+        // Normaliser et valider les URLs (max 10)
+        const validUrls = parsedYoutubeUrls
+          .slice(0, 10)
+          .map(url => normalizeYoutubeUrl(url))
+          .filter(url => url !== null && isValidYoutubeUrl(url));
+
+        // Récupérer les vidéos YouTube existantes
+        const existingYoutubeVideos = await POIFile.findAll({
+          where: { poiId: poi.id, type: 'youtubeVideo' }
+        });
+
+        // Supprimer les vidéos YouTube qui ne sont plus dans la liste
+        const existingUrls = existingYoutubeVideos.map(f => f.fileUrl);
+        const urlsToKeep = validUrls.filter(url => existingUrls.includes(url));
+        const urlsToAdd = validUrls.filter(url => !existingUrls.includes(url));
+        const urlsToRemove = existingUrls.filter(url => !validUrls.includes(url));
+
+        // Supprimer les vidéos qui ne sont plus dans la liste
+        for (const urlToRemove of urlsToRemove) {
+          const fileToRemove = existingYoutubeVideos.find(f => f.fileUrl === urlToRemove);
+          if (fileToRemove) {
+            await fileToRemove.destroy();
+            console.log('🗑️ Vidéo YouTube supprimée:', urlToRemove);
+          }
+        }
+
+        // Ajouter les nouvelles vidéos YouTube
+        for (const url of urlsToAdd) {
+          try {
+            await POIFile.create({
+              poiId: poi.id,
+              fileUrl: url,
+              filePublicId: null,
+              type: 'youtubeVideo'
+            });
+            console.log('✅ Vidéo YouTube ajoutée:', url);
+          } catch (error) {
+            console.warn('⚠️ Erreur création POIFile YouTube:', error.message);
+          }
+        }
+
+        // Si la liste est vide, supprimer toutes les vidéos YouTube existantes
+        if (validUrls.length === 0 && existingYoutubeVideos.length > 0) {
+          for (const video of existingYoutubeVideos) {
+            await video.destroy();
+            console.log('🗑️ Toutes les vidéos YouTube supprimées');
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Erreur gestion vidéos YouTube:', error.message);
       }
     }
 

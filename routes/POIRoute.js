@@ -157,34 +157,34 @@ POIRouter.get('/:id', findOnePOI);
 POIRouter.post(
   '/create-with-files',
   uploadMultipleFiles,
-  [
-    body('coordinates')
-      .isString()
-      .withMessage('Les coordonnées doivent être une chaîne JSON valide'),
-    body('category')
-      .isUUID()
-      .withMessage('La catégorie doit être un UUID valide'),
-    body('cityId')
-      .isUUID()
-      .withMessage('L\'ID de la ville doit être un UUID valide'),
-    body('practicalInfo')
-      .optional()
-      .isString()
-      .withMessage('Les informations pratiques doivent être une chaîne JSON valide'),
-    body('arLocalization')
-      .optional()
-      .isString()
-      .withMessage('La localisation arabe doit être une chaîne JSON valide'),
-    body('frLocalization')
-      .optional()
-      .isString()
-      .withMessage('La localisation française doit être une chaîne JSON valide'),
-    body('enLocalization')
-      .optional()
-      .isString()
-      .withMessage('La localisation anglaise doit être une chaîne JSON valide'),
-    handleValidationErrors
-  ],
+  // [
+  //   body('coordinates')
+  //     .isString()
+  //     .withMessage('Les coordonnées doivent être une chaîne JSON valide'),
+  //   body('category')
+  //     .isUUID()
+  //     .withMessage('La catégorie doit être un UUID valide'),
+  //   body('cityId')
+  //     .isUUID()
+  //     .withMessage('L\'ID de la ville doit être un UUID valide'),
+  //   body('practicalInfo')
+  //     .optional()
+  //     .isString()
+  //     .withMessage('Les informations pratiques doivent être une chaîne JSON valide'),
+  //   body('arLocalization')
+  //     .optional()
+  //     .isString()
+  //     .withMessage('La localisation arabe doit être une chaîne JSON valide'),
+  //   body('frLocalization')
+  //     .optional()
+  //     .isString()
+  //     .withMessage('La localisation française doit être une chaîne JSON valide'),
+  //   body('enLocalization')
+  //     .optional()
+  //     .isString()
+  //     .withMessage('La localisation anglaise doit être une chaîne JSON valide'),
+  //   handleValidationErrors
+  // ],
   createPOIWithFiles
 );
 

@@ -47,6 +47,7 @@ const PORT = process.env.PORT || 8080;
 const ALLOWED_ORIGINS = [
   process.env.CLIENT_URL,
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://go-fez.vercel.app',
   'http://localhost:8081', // React Native Web/Expo
   'http://localhost:19006', // Expo Web
@@ -134,6 +135,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 const jsonMiddleware = express.json({ limit: '50mb' });
+app.use(express.urlencoded({ extended: true, limit: '50mb' })); 
 
 // Routes avec files (multer)
 app.use('/api/themes/', ThemeRoute);
