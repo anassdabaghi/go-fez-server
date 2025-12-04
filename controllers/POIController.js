@@ -374,8 +374,16 @@ const findAllPOIs = async (req, res) => {
         order: [['createdAt', 'DESC']]
       });
 
+      // ✅ Filter out POIs without any localization (no name in any language)
+      const validPois = pois.filter(poi => {
+        const hasFrLocalization = poi.frLocalization && poi.frLocalization.name;
+        const hasArLocalization = poi.arLocalization && poi.arLocalization.name;
+        const hasEnLocalization = poi.enLocalization && poi.enLocalization.name;
+        return hasFrLocalization || hasArLocalization || hasEnLocalization;
+      });
+
       // Parse JSON fields
-      const processedPOIs = pois.map(poi => {
+      const processedPOIs = validPois.map(poi => {
         const poiData = poi.toJSON();
         // Parse coordinates if it's a string
         if (typeof poiData.coordinates === 'string') {
@@ -462,8 +470,16 @@ const findAllPOIs = async (req, res) => {
       subQuery: false
     });
 
+    // ✅ Filter out POIs without any localization (no name in any language)
+    const validPois = pois.filter(poi => {
+      const hasFrLocalization = poi.frLocalization && poi.frLocalization.name;
+      const hasArLocalization = poi.arLocalization && poi.arLocalization.name;
+      const hasEnLocalization = poi.enLocalization && poi.enLocalization.name;
+      return hasFrLocalization || hasArLocalization || hasEnLocalization;
+    });
+
     // Parse JSON fields
-    const processedPOIs = pois.map(poi => {
+    const processedPOIs = validPois.map(poi => {
       const poiData = poi.toJSON();
       // Parse coordinates if it's a string
       if (typeof poiData.coordinates === 'string') {

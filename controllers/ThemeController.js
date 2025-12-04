@@ -68,6 +68,11 @@ exports.getAllThemes = async (req, res) => {
                 include: [{
                     model: Circuit,
                     as: 'circuitsFromThemes',
+                    where: {
+                        isActive: true,
+                        isDeleted: false,
+                    },
+                    required: false,
                     through: { attributes: [] },
                     attributes: ['id']
                 }],
@@ -111,6 +116,11 @@ exports.getAllThemes = async (req, res) => {
             include: [{
                 model: Circuit,
                 as: 'circuitsFromThemes',
+                where: {
+                    isActive: true,
+                    isDeleted: false,
+                },
+                required: false,
                 through: { attributes: [] },
                 attributes: ['id']
             }],
@@ -150,10 +160,6 @@ exports.getThemeById = async (req, res) => {
             transportMode 
         } = req.query;
 
-        // Debug Logs
-        console.log(`🔍 [getThemeById] ID: ${id}`);
-        console.log(`🔍 [getThemeById] Filters:`, { search, sortBy, maxDistance, transportMode });
-
         // 1. Build Circuit Filters
         // Default checks (Active & Not Deleted)
         const circuitWhere = {
@@ -176,7 +182,6 @@ exports.getThemeById = async (req, res) => {
         // Filter by Search
         if (search) {
             const searchTerm = `%${xss(search)}%`;
-            console.log(`🔍 [getThemeById] Applying Search Term: ${searchTerm}`);
             
             circuitWhere[Op.or] = [
                 Sequelize.where(Sequelize.cast(Sequelize.col('circuitsFromThemes.fr'), 'CHAR'), { [Op.like]: searchTerm }),
