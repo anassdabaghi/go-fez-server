@@ -1,2 +1,2 @@
 # GOFEZ
-hosting
+hosting now
